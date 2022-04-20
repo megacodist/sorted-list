@@ -7,8 +7,7 @@
 from __future__ import annotations   # For postponed evaluation of annotations, required CPython 3.8+
 from collections.abc import Sequence, Iterator, Iterable
 from enum import IntEnum
-from re import I
-from typing import Any, Callable, Literal
+from typing import Any, Callable
 
 
 class CollisionPolicy(IntEnum):
@@ -54,7 +53,6 @@ class OrderedList(Sequence):
 
     def __init__(
         self,
-        items: Iterable = None,
         collision: CollisionPolicy = CollisionPolicy.ignore,
         key: Callable[[Any], Any] = None
     ) -> None:
@@ -77,26 +75,8 @@ class OrderedList(Sequence):
         # Creating the iterator index...
         self._iterIndex: (None | int) = None
 
-        # Initializing the internal list...
+        # Initializing the internal list to empty...
         self._items = []
-        for item in items:
-            # Creating a new item...
-            if self._key:
-                newItem = OrderedList.DataComparerPair(
-                    data=item,
-                    comparer=self._key(item)
-                )
-            else:
-                newItem = item
-
-            # Adding the new item to the underlying list...
-            self._items.append(newItem)
-        
-        if len(self._items):
-            if self._key:
-                self._items.sort()
-            else:
-                self._items.sort(key=lambda item: item.comparer)
 
     def __len__(self) -> int:
         return len(self._items)
@@ -181,16 +161,19 @@ class OrderedList(Sequence):
         ⬤ a slice object: more that one 'value' are in the OrderedList and the slice object specifies their positions in the OrderedList.'''
 
         # Checking boundaries & initializing lent & right indexes...
-        # Checking 'start'...
+        # Checking 'start' parameter...
         if not isinstance(start, int):
             raise TypeError("'start' must be an integer")
         
         if start < 0:
-            raise ValueError("'start' can not be less than 0")
+            raise ValueError(
+                'E1001',
+                "'start' can not be less than 0"
+            )
         
         lIndex = start
         
-        # Checking 'end'...
+        # Checking 'end' parameter...
         if end is None:
             rIndex = len(self._items) - 1
         elif not isinstance(end, int):
@@ -198,10 +181,16 @@ class OrderedList(Sequence):
         else:
             rIndex = end
             if end >= len(self._items):
-                raise ValueError("'end' exceeds the list")
+                raise ValueError(
+                    'E1002',
+                    "'end' parameter exceeds the list length"
+                )
         
         if lIndex > rIndex:
-            raise ValueError("'start' must not be greater that 'end'")
+            raise ValueError(
+                'E1003',
+                "'start' must not be greater than 'end'"
+            )
         
         # Getting comparer...
         if self._usingComparer:
@@ -209,55 +198,129 @@ class OrderedList(Sequence):
         else:
             value_ = value
         
-        # Checking if 'value' must be placed at the beginning of the list...
+        # Checking if 'value' must be placed at the beginning of the interval...
         if value_< self._items[lIndex]:
             try:
-                if value < self._items[lIndex - 1]:
-                    raise ValueError()
+                if value_ < self._items[lIndex - 1]:
+                    raise ValueError(
+                        'E1101',
+                        "Inserting 'value' into this interval make list inconsistent"
+                    )
             except IndexError:
                 pass
-            return -lIndex
 
-        # Checking if 'value' must be placed at the end of the list...
-        if value > self._items[rIndex]:
+            if lIndex:
+                return -lIndex
+            else:
+                return None
+        # Checking if 'value' must be placed at the end of the interval...
+        elif value_ > self._items[rIndex]:
             try:
-                if value > self._items[rIndex]:
-                    raise ValueError()
+                if value_ > self._items[rIndex]:
+                    raise ValueError(
+                        'E1101',
+                        "Inserting 'value' into this interval make list inconsistent"
+                    )
             except IndexError:
                 pass
-            return -rIndex - 1
-        
-        # Checking if 'value' must be placed at the beginning of the list...
-        
-        
-        # Finding the position...
-        return self._DoBinSearch(
-            value_,
-            0,
-            len(self._items)
-        )
+            return -rIndex - 1 
+        # Checking if the interval has got only one element...
+        elif lIndex == rIndex:
+            return lIndex
+        # Checking if 'value' is at the beginning of the interval...
+        elif value_ == self._items[lIndex]:
+            return self._LookForSlice(lIndex)
+        # Checking if 'value' is at the end of the interval...
+        elif value_ == self._items[rIndex]:
+            return self._LookForSlice(rIndex)
+        # Checking if the interval has got two elements...
+        elif lIndex + 1 == rIndex:
+            return -rIndex        
+        # Finding the position recursively...
+        else:
+            return self._DoBinSearch(
+                value_,
+                lIndex + 1,
+                rIndex - 1
+            )
 
     def Put(
         self,
         value: Any,
-        collision: CollisionPolicy = CollisionPolicy.ignore,
-        lIndex: int = 0,
-        rIndex: (None | int) = None
-    ) -> None:
-        '''Puts 'value' into a correct position in the OrderedList.
+        collision: None | CollisionPolicy = None
+    ) -> None | int:
+        '''Puts 'value' into its correct position in the OrderedList. It accepts a 'collision' parameter which can be any CollisionPolicy value and defaults to None. None means use
+        object CollisionPolicy or you can specifies the policy for this put operation. This method returns the insertion position as an integer or it returns None if ignore
+        CollisionPolicy prevented the insertion.'''
         
-        If there is the same value(s) in the OrderedList (collision), it is possible to put it just after all equal values (end), just before all equal values (start), or to ignore the value.'''
+        # Checking collision parameter...
+        if collision is None:
+            # Using default (object-level) collision...
+            collision = self._collision
+        elif not isinstance(collision, CollisionPolicy):
+            raise TypeError("'collision' must be an instance of CollisionPolicy")
         
-        # Checking lIndex parameter...
-        if value < self._items[lIndex]:
-            raise ValueError('')
+        # Getting value...
+        if self._usingComparer:
+            value_ = self._key(value)
+        else:
+            value_ = value
+        
+        # Getting the index of 'value' in the list...
+        index_ = self.index(value)
+
+        if index_ is None:
+            self._items.insert(0, value_)
+            return 0
+        elif isinstance(index_, int):
+            if index_ < 0:
+                position = abs(index_)
+                self._items.insert(position, value_)
+                return position
+            else:
+                lower = index_
+                upper = index_ + 1
+        elif isinstance(index_, slice):
+            lower, upper, _ = index_.indices(self.__len__)
+        else:
+            # Something went wrong.
+            # Logging a warning...
+            pass
+
+        if collision == CollisionPolicy.ignore:
+            return None
+        elif collision == CollisionPolicy.start:
+            self._items.insert(lower, value_)
+            return lower
+        else:
+            self._items.insert(upper, value_)
+            return upper
     
     def Merge(
         self,
-        item: Iterable[Any],
+        items: Iterable[Any],
         collision: CollisionPolicy = CollisionPolicy.ignore
     ) -> None:
-        pass
+        # Initializing the internal list...
+        self._items = []
+        for item in items:
+            # Creating a new item...
+            if self._key:
+                newItem = OrderedList.DataComparerPair(
+                    data=item,
+                    comparer=self._key(item)
+                )
+            else:
+                newItem = item
+
+            # Adding the new item to the underlying list...
+            self._items.append(newItem)
+        
+        if len(self._items):
+            if self._key:
+                self._items.sort()
+            else:
+                self._items.sort(key=lambda item: item.comparer)
 
     def _LookForSlice(
         self,
@@ -292,7 +355,10 @@ class OrderedList(Sequence):
         if stop - start > 1:
             return slice(start, stop)
         else:
-            return index
+            if index:
+                return index
+            else:
+                return None
 
     def _DoBinSearch(
         self,
@@ -309,8 +375,20 @@ class OrderedList(Sequence):
         ⬤ a slice object: more that one 'value' are in the OrderedList and the slice object specifies their positions in the OrderedList.'''
 
         # Checking the stop recursion condition...
-        if lIndex + 1 == rIndex:
-            # Recursion must be stopped, possible return values are as follow:
+        # There are two stop recursion conditions...
+        # 1. lIndex == rIndex
+        # 2. lIndex + 1 == rIndex
+        if lIndex == rIndex:
+            # First stop recursion condition fulfilled...
+            if value < self._items[lIndex]:
+                return -lIndex
+            elif value > self._items[rIndex]:
+                return -rIndex - 1
+            else:
+                # value == self._items[lIndex]
+                return lIndex
+        elif lIndex + 1 == rIndex:
+            # Second stop recursion condition fulfilled...
             # 1. None ------------------------ if and only if value <  items[lIndex] and lIndex == 0
             # 2. -lIndex ===================== if and only if value <  items[lIndex] and lIndex >  0
             # 3. lIndex ---------------------- if and only if value == items[lIndex] and value <  items[rIndex]
@@ -344,6 +422,8 @@ class OrderedList(Sequence):
                     # value > self._items[rIndex]
                     return -rIndex - 1
         
+        # No stop recursion conditions fulfilled...
+        # Continuing recursion...
         # Finding the middle index...
         mIndex = (rIndex + lIndex) // 2
 
@@ -361,47 +441,5 @@ class OrderedList(Sequence):
 
 
 if (__name__ == '__main__'):
-    class Triple:
-        def __init__(self, a: float) -> None:
-            self._data = (a, 3 * a,)
-        
-        def __gt__(self, value) -> bool:
-            return self._data[1] > value
-        
-        def __lt__(self, value) -> bool:
-            return self._data[1] < value
-    
-    class NoTriple:
-        def __init__(self, a: float) -> None:
-            self._data = (a, 3 * a,)
-        
-        def __gt__(self, value) -> bool:
-            return self._data[0] > value
-        
-        def __lt__(self, value) -> bool:
-            return self._data[0] < value
-
-    print(Triple(2) > NoTriple(2))
-    print(NoTriple(6) > Triple(2))
-    print(Triple(2) > Triple(2.1))
-    print(NoTriple(2.1) > NoTriple(2))
-
-    def func():
-        return '123'
-    
-    class mmm:
-        def __init__(self, func) -> None:
-            self._func = func
-        
-        def __str__(self) -> None:
-            return self._func()
-    
-    func2 = func
-    mm = mmm(func2)
-
-    print(str(mm))
-    from time import sleep
-
-    sleep(2)
-    del func
-    print(str(mm))
+    ol = OrderedList(collision=CollisionPolicy.end)
+    ol.Put(3)
