@@ -10,6 +10,12 @@ from enum import IntEnum
 from typing import Any, Callable
 
 
+class IntervalError(Exception):
+    '''This exception is used to specify an improper interval or an operation which cannot be done in the specified interval.'''
+    def __init__(self, *args: object) -> None:
+        super().__init__(*args)
+
+
 class CollisionPolicy(IntEnum):
     '''This enumeration is used when you want to put a value into an ordered list which is already in the list (collision). Possible policies are as follow:
     
@@ -56,6 +62,7 @@ class OrderedList(Sequence):
         collision: CollisionPolicy = CollisionPolicy.ignore,
         key: Callable[[Any], Any] = None
     ) -> None:
+        '''Initializes an instance. You can set the dafault collision policy for this object but if you do not, 'ignore' is the default.'''
         # Setting the comparer callable...
         # Instances of this class are dependent to the reference of 'key'. If in the middle of the life cycle of some instances the 'key' refrence
         # becomes deleted, '_usingComparer' will detect and cause 'key' related operations to fail.
@@ -88,7 +95,7 @@ class OrderedList(Sequence):
             return self._items[index]
     
     def __setitem__(self, index: int, value: Any) -> None:
-        raise NotImplemented("You are not allowed to change the underlying list on your own. But instead you can use 'Put' method to put the 'vaue' in its suitable position.")
+        raise TypeError("You are not allowed to change the underlying list on your own. But instead you can use 'Put' method to put the 'vaue' in its suitable position.")
 
     def __iter__(self) -> Iterator[OrderedList]:
         # Settingand returning the iterator variable...
@@ -152,95 +159,91 @@ class OrderedList(Sequence):
         start: int = 0,
         end: int | None = None
     ) -> None | int | slice:
-        '''Returns the index of 'value' in the OrderedList. The possible return values are as follow:
+        '''This method is the backbone of this class. It returns the index of 'value' in the OrderedList. You can specifies an interval in the form of [start, end)  to search
+        for index, 'start' is included and 'end' in excluded. 'start' and 'end' are defaulted to 0 and None respectively which means 0 <= index <= len(internal list). If you
+        specify each boundary beyond these boundaries, they automatically will be clipped to these deafults. If there are the same value at the boundary of the specified
+        interval, this method returns a slice object that lies outside of the interval.
+
+        The possible return values are as follow:
         
-        ⬤ None: 'value' does not exist in the OrderedList but suitable position is 0 if we wanted to have it in the OrderedList.
+        ⬤ None: 'value' does not exist in the OrderedList but the suitable position is 0 if we want to put it in the OrderedList.
         ⬤ zero: 'value' is the first element (index 0) of the OrderedList.
         ⬤ a positive integer: 'value' is at this position in the OrderedList.
-        ⬤ a negative integer: 'value' does not exist in the OrderedList but suitable position is the absolue value of this negative integer if we wanted to have it in the OrderedList.
-        ⬤ a slice object: more that one 'value' are in the OrderedList and the slice object specifies their positions in the OrderedList.'''
+        ⬤ a negative integer: 'value' does not exist in the OrderedList but suitable position is the absolue value of this negative integer if we want to put it in the OrderedList.
+        ⬤ a slice object: more that one 'value' are in the OrderedList and the slice object specifies their positions in the OrderedList.
+        
+        Exception:
+        ⬤ TypeError: at least one of the 'start', 'end', or 'collision' parameters got improper value
+        ⬤ ValueError: 'start' was evaluated to be greater than 'end'
+        ⬤ IntervalError: it is impossible to put 'value' in this interval [start, end)'''
 
         # Checking boundaries & initializing lent & right indexes...
         # Checking 'start' parameter...
         if not isinstance(start, int):
             raise TypeError("'start' must be an integer")
-        
-        if start < 0:
-            raise ValueError(
-                'E1001',
-                "'start' can not be less than 0"
-            )
-        
+        # Clipping out of boundary indices for 'lIndex'...
         lIndex = start
+        if lIndex < 0:
+            lIndex = 0
         
         # Checking 'end' parameter...
         if end is None:
-            rIndex = len(self._items) - 1
+            rIndex = len(self._items)
         elif not isinstance(end, int):
             raise TypeError("'end' must be an integer or None")
         else:
+            # Clipping out of boundary indices for 'rIndex'...
             rIndex = end
-            if end >= len(self._items):
-                raise ValueError(
-                    'E1002',
-                    "'end' parameter exceeds the list length"
-                )
+            if rIndex > len(self._items):
+                rIndex = len(self._items)
         
+        # Checking the interval...
         if lIndex > rIndex:
-            raise ValueError(
-                'E1003',
-                "'start' must not be greater than 'end'"
-            )
+            raise ValueError("'start' was evaluated to be greater than 'end'")
         
         # Getting comparer...
         if self._usingComparer:
-            value_ = OrderedList.DataComparerPair(value, self._key(value))
+            value_ = self._key(value)
         else:
             value_ = value
         
-        # Checking if 'value' must be placed at the beginning of the interval...
-        if value_< self._items[lIndex]:
-            try:
-                if value_ < self._items[lIndex - 1]:
-                    raise ValueError(
-                        'E1101',
-                        "Inserting 'value' into this interval make list inconsistent"
-                    )
-            except IndexError:
-                pass
+        # Checking if 'value' position overflows the given interval...
+        # Using EAPT design pattern...
+        try:
+            if value_ > self._items[rIndex]:
+                raise IntervalError("Possible index of 'value' overflows the specified interval")
+            elif value_ == self._items[rIndex]:
+                return self._LookForSlice(rIndex)
+        except IndexError:
+            pass
 
+        # Checking if 'value' position underflows the given interval...
+        # Using LBYL design pattern because negative indices do not throw exception, the underlying list will be used from end...
+        if lIndex > 0:
+            if value_ < self._items[lIndex - 1]:
+                raise IntervalError("Possible index of 'value' underflows the specified interval")
+            elif value_ == self._items[lIndex - 1]:
+                return self._LookForSlice(lIndex - 1)
+
+        if lIndex == rIndex:
             if lIndex:
                 return -lIndex
             else:
                 return None
-        # Checking if 'value' must be placed at the end of the interval...
-        elif value_ > self._items[rIndex]:
-            try:
-                if value_ > self._items[rIndex]:
-                    raise ValueError(
-                        'E1101',
-                        "Inserting 'value' into this interval make list inconsistent"
-                    )
-            except IndexError:
-                pass
-            return -rIndex - 1 
-        # Checking if the interval has got only one element...
-        elif lIndex == rIndex:
-            return lIndex
-        # Checking if 'value' is at the beginning of the interval...
-        elif value_ == self._items[lIndex]:
-            return self._LookForSlice(lIndex)
-        # Checking if 'value' is at the end of the interval...
-        elif value_ == self._items[rIndex]:
-            return self._LookForSlice(rIndex)
-        # Checking if the interval has got two elements...
         elif lIndex + 1 == rIndex:
-            return -rIndex        
-        # Finding the position recursively...
+            if value_ < self._items[lIndex]:
+                if lIndex:
+                    return -lIndex
+                else:
+                    return None
+            elif value_ == self._items[lIndex]:
+                return lIndex
+            else:
+                return -rIndex
         else:
             return self._DoBinSearch(
                 value_,
-                lIndex + 1,
+                lIndex,
                 rIndex - 1
             )
 
@@ -249,9 +252,9 @@ class OrderedList(Sequence):
         value: Any,
         collision: None | CollisionPolicy = None
     ) -> None | int:
-        '''Puts 'value' into its correct position in the OrderedList. It accepts a 'collision' parameter which can be any CollisionPolicy value and defaults to None. None means use
-        object CollisionPolicy or you can specifies the policy for this put operation. This method returns the insertion position as an integer or it returns None if ignore
-        CollisionPolicy prevented the insertion.'''
+        '''Puts 'value' into its correct position in the OrderedList. It accepts a 'collision' parameter which can be any CollisionPolicy value and defaults to None.
+        None means use object default CollisionPolicy or you can specifies the policy for this put operation. This method returns the insertion position as an integer or
+        it returns None if ignore CollisionPolicy prevented the insertion.'''
         
         # Checking collision parameter...
         if collision is None:
@@ -281,7 +284,7 @@ class OrderedList(Sequence):
                 lower = index_
                 upper = index_ + 1
         elif isinstance(index_, slice):
-            lower, upper, _ = index_.indices(self.__len__)
+            lower, upper, _ = index_.indices(len(self._items))
         else:
             # Something went wrong.
             # Logging a warning...
@@ -443,3 +446,8 @@ class OrderedList(Sequence):
 if (__name__ == '__main__'):
     ol = OrderedList(collision=CollisionPolicy.end)
     ol.Put(3)
+    ol.Put(4)
+    ol.Put(4)
+    ol.Put(6.3)
+    ol.Put(7)
+    ol.index(2)
