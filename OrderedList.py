@@ -174,7 +174,7 @@ class OrderedList(Sequence):
         
         Exception:
         ⬤ TypeError: at least one of the 'start', 'end', or 'collision' parameters got improper value
-        ⬤ ValueError: 'start' was evaluated to be greater than 'end'
+        ⬤ ValueError: 'start' was evaluated to be greater than 'end' or 'value' is not compatible with 'key' comparer
         ⬤ IntervalError: it is impossible to put 'value' in this interval [start, end)'''
 
         # Checking boundaries & initializing lent & right indexes...
@@ -202,10 +202,16 @@ class OrderedList(Sequence):
             raise ValueError("'start' was evaluated to be greater than 'end'")
         
         # Getting comparer...
-        if self._usingComparer:
-            value_ = self._key(value)
-        else:
-            value_ = value
+        try:
+            if self._usingComparer:
+                value_ = OrderedList.DataComparerPair(
+                    value,
+                    self._key(value)
+                )
+            else:
+                value_ = value
+        except Exception:
+            raise ValueError("'value' is not compatible with 'key' comparer.")
         
         # Checking if 'value' position overflows the given interval...
         # Using EAPT design pattern...
@@ -263,11 +269,17 @@ class OrderedList(Sequence):
         elif not isinstance(collision, CollisionPolicy):
             raise TypeError("'collision' must be an instance of CollisionPolicy")
         
-        # Getting value...
-        if self._usingComparer:
-            value_ = self._key(value)
-        else:
-            value_ = value
+        # Getting comparer...
+        try:
+            if self._usingComparer:
+                value_ = OrderedList.DataComparerPair(
+                    value,
+                    self._key(value)
+                )
+            else:
+                value_ = value
+        except Exception:
+            raise ValueError("'value' is not compatible with 'key' comparer.")
         
         # Getting the index of 'value' in the list...
         index_ = self.index(value)
@@ -440,14 +452,3 @@ class OrderedList(Sequence):
             # value === items[mIndex]
             # So searching for a possible slice...
             return self._LookForSlice(mIndex)
-
-
-
-if (__name__ == '__main__'):
-    ol = OrderedList(collision=CollisionPolicy.end)
-    ol.Put(3)
-    ol.Put(4)
-    ol.Put(4)
-    ol.Put(6.3)
-    ol.Put(7)
-    ol.index(2)
