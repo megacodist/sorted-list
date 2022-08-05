@@ -1,2 +1,2 @@
-# ordered-list
+# sorted-list
  A sorted list in Python. 
