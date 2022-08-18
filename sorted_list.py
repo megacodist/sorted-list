@@ -1,12 +1,10 @@
-"""Me
-"""
-
 # Copyright (c) 2022, Megacodist
 # All rights reserved.
 #
 # This source code is licensed under the MIT license found in the LICENSE
 # file in the root directory of this source tree.
 
+# Requires Python 3.10+
 # For postponed evaluation of annotations, required CPython 3.8+
 from __future__ import annotations
 from bisect import bisect_right
@@ -73,15 +71,18 @@ class SortedList(Sequence):
 
     def __init__(
             self,
+            *,
             cp: CollisionPolicy = CollisionPolicy.IGNORE,
             key: Callable[[Any], Any] = None
             ) -> None:
-        '''Initializes a new instance. You can set the dafault collision
-        policy for this object but if you do not, 'IGNORE' is the default.
-        The 'key' callback must accepts a parameter and returns a value.
-        It is also possible to change the collision policy (cp) throughout
-        the life cycle of the object but 'key' callback can only be set at
-        instantiation (creation) time.
+        '''This is the initializer of the class with two keyword-only
+        arguments. The 'cp' parameter accepts a CollisionPolicy which
+        defaults to IGNORE. It can be set at any time with 'cp' property.
+        The 'key' callable acts like key parameters in Python ecosystem. The
+        callable must accepts a value and returns a result as well and if
+        it does not provide values will be compared directly without any
+        intermediate comparers. This attribute can not be changed. To change
+        this attribute, you must instantiate a new sorted list.
         '''
         # Setting the comparer callable...
         self._key: Callable[[Any], Any] = key
@@ -100,8 +101,17 @@ class SortedList(Sequence):
     
     @property
     def items(self) -> list[Any]:
-        """Gets a copy of items of the SortedList as a regular list."""
+        """Gets or sets the items of this object. It returns a copy of the
+        objects in the list as a regular list or sets the underlying list
+        with the the sorted version of argument provided.
+        """
         return deepcopy(self._items)
+    
+    @items.setter
+    def items(self, __list: list[Any], /) -> None:
+        del self._items
+        self._items = []
+        self.merge(__list)
     
     @property
     def cp(self) -> CollisionPolicy:
@@ -178,9 +188,9 @@ class SortedList(Sequence):
         existed, _ = self.index(value_)
         return existed
     
-    def count(self, value: Any) -> int:
-        '''Returns number of occurrences of 'value' in the SortedList.'''
-        existed, idx = self.index(value)
+    def count(self, __value: Any, /) -> int:
+        '''Returns number of occurrences of '__value' in the SortedList.'''
+        existed, idx = self.index(__value)
         if existed:
             if isinstance(idx, slice):
                 lower, upper, _ = idx.indices(self.__len__())
@@ -336,7 +346,8 @@ class SortedList(Sequence):
             cp: CollisionPolicy | None = None
             ) -> None:
         """Merges an interable of items into their suitable positions in
-        the list.
+        the list. You can specify a custom collision policy for this
+        operation.
         """
         # Determining the collision policy for this operation...
         if not ((cp is None) or isinstance(cp, CollisionPolicy)):
